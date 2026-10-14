@@ -1,0 +1,18 @@
+# Exclude local environment and caches from Docker context
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/
+*.sqlite
+*.sqlite3
+*.db
+docs/
+*.md

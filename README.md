@@ -1,6 +1,6 @@
 # End-to-End Banking Intent Classification and Human-in-the-Loop Routing API
 
-An automated customer support ticket triage and routing microservice powered by fine-tuned DistilBERT and dynamic INT8 post-training quantization. The service classifies customer banking inquiries across 5 specialized departments and enforces a confidence-threshold decision boundary to automatically route high-confidence tickets while triaging low-confidence edge cases to human specialists.
+An automated customer support ticket triage and routing microservice powered by fine-tuned DistilBERT, dynamic INT8 post-training quantization, and PostgreSQL audit logging. The service classifies customer banking inquiries across 5 specialized departments and enforces a confidence-threshold decision boundary to automatically route high-confidence tickets while triaging low-confidence edge cases to human specialists.
 
 ---
 
@@ -12,6 +12,10 @@ An automated customer support ticket triage and routing microservice powered by 
   https://colab.research.google.com/drive/11gEVZKFhW9kuRiLTD7eLhQUc559z1Nsm#scrollTo=k8Rxf_eOSCcp
 - Project Performance and Architecture Documentation:
   https://docs.google.com/document/d/1iD6ArN--5a12zk_pU3nERDgjRNR4aca1L52WRcx_Jgg/edit?tab=t.0
+- Executive Slide Presentation Deck:
+  [docs/PRESENTATION.md](docs/PRESENTATION.md)
+- Complete Model Evaluation Report:
+  [docs/EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md)
 
 ---
 
@@ -25,12 +29,15 @@ An automated customer support ticket triage and routing microservice powered by 
 6. Unseen Test Set Evaluation (3,080 Tickets)
 7. Production Human-in-the-Loop (HITL) Routing Simulation
 8. Post-Training Quantization (INT8)
-9. Repository Structure and Artifact Persistence
-10. Installation and Local Setup
-11. Running the FastAPI Inference Service
-12. API Specifications and Payload Examples
-13. End-to-End Latency Benchmarking
-14. System Limitations and Next Steps
+9. Database Integration and Prediction Logging (PostgreSQL)
+10. Repository Structure and Artifact Persistence
+11. Installation and Local Setup
+12. Running the FastAPI Inference Service
+13. API Specifications and Payload Examples
+14. Automated Test Suite (Pytest)
+15. End-to-End Latency Benchmarking
+16. Docker Container Deployment (Docker Compose)
+17. System Limitations and Next Steps
 
 ---
 
@@ -41,6 +48,7 @@ An automated customer support ticket triage and routing microservice powered by 
 - Persist Production Artifacts: Decouple numerical weights (`model.safetensors`), architectural blueprints (`config.json`), and subword vocabularies to guarantee reproducible cold-start inference without retraining.
 - Implement Production-Grade HITL Routing: Evaluate the model against a holdout test split of 3,080 tickets and introduce a confidence threshold mechanism ($\tau = 0.85$) that automates high-confidence queries while escalating ambiguous queries to human specialists.
 - Optimize CPU Inference: Apply dynamic INT8 quantization to cut artifact storage by ~48% and deliver sub-100ms response times for real-time web services.
+- Database Prediction Logging: Persist every inference request, confidence score, routing decision, and execution latency to PostgreSQL asynchronously for monitoring and auditability.
 
 ---
 
@@ -178,15 +186,44 @@ The production runtime wrapper in `app/model.py` automatically detects and prior
 
 ---
 
-## 9. Repository Structure and Artifact Persistence
+## 9. Database Integration and Prediction Logging (PostgreSQL)
+
+The inference service integrates an asynchronous audit logging pipeline backed by PostgreSQL (`prediction_logs` table):
+
+### Table Schema
+
+- `id`: Integer Primary Key (Autoincrement)
+- `ticket_id`: String (Indexed)
+- `text`: Text (Full inquiry message)
+- `predicted_intent`: String (Target department)
+- `confidence`: Float (Top Softmax probability)
+- `route`: String (`AUTO_ROUTE` or `HUMAN_ESCALATION`)
+- `escalate_to_human`: Boolean
+- `latency_ms`: Float (Inference execution duration)
+- `timestamp`: DateTime (UTC timestamp, Indexed)
+
+### Non-Blocking Architecture
+
+FastAPI's `BackgroundTasks` processes database writes outside the HTTP response path. Client response latencies are unaffected by database disk I/O. If PostgreSQL is unreachable, the database engine gracefully falls back to a local SQLite database (`predictions.db`) to ensure 100% service availability.
+
+---
+
+## 10. Repository Structure and Artifact Persistence
 
 ```text
 banking-classifier-api/
 ├── app/
 │   ├── __init__.py          # Module initialization
+│   ├── database.py          # SQLAlchemy engine, session management, and background workers
+│   ├── db_models.py         # PredictionLog SQLAlchemy table model
 │   ├── main.py              # FastAPI application, routing logic, and lifespan management
 │   ├── model.py             # Inference pipeline wrapper, tokenization, and warm-up
 │   └── schemas.py           # Pydantic schemas for request validation and response serialisation
+├── docs/
+│   ├── EVALUATION_REPORT.md # Comprehensive model performance and error analysis report
+│   └── PRESENTATION.md      # Executive slide deck presentation
+├── tests/
+│   └── test_api.py          # Pytest unit and integration test suite
 ├── weights/                 # Original FP32 fine-tuned model and tokenizer configuration
 │   ├── config.json          # Transformer architecture definition
 │   ├── tokenizer.json       # Subword vocabulary encoding rules
@@ -198,19 +235,23 @@ banking-classifier-api/
 │   └── vocab.txt
 ├── benchmark.py             # Latency benchmarking script (100 HTTP requests)
 ├── quantize.py              # Dynamic quantization execution and accuracy validation script
+├── Dockerfile               # Multi-stage production container definition
+├── docker-compose.yml       # Orchestration for FastAPI app and PostgreSQL service
 ├── requirements.txt         # Production Python dependencies
+├── .dockerignore            # Exclusions for container builds
 ├── .gitignore               # Git exclusions (weights, virtual environments, caches)
 └── README.md                # Technical project documentation
 ```
 
 ---
 
-## 10. Installation and Local Setup
+## 11. Installation and Local Setup
 
 ### Prerequisites
 
 - Python 3.9 or higher
 - Git
+- PostgreSQL 14+ (or SQLite fallback)
 
 ### 1. Clone the Repository
 
@@ -238,7 +279,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Download Model Weights
+### 4. Configure PostgreSQL
+
+Ensure PostgreSQL is running locally on port 5432 and create the database:
+
+```bash
+createdb banking_db
+```
+
+Set the database connection string in your environment (defaults to `postgresql://<user>@localhost:5432/banking_db`):
+```bash
+export DATABASE_URL="postgresql://localhost:5432/banking_db"
+```
+
+### 5. Download Model Weights
 
 Binary weights are hosted externally on Google Drive to maintain repository efficiency:
 
@@ -256,7 +310,7 @@ python quantize.py
 
 ---
 
-## 11. Running the FastAPI Inference Service
+## 12. Running the FastAPI Inference Service
 
 Start the web server using Uvicorn:
 
@@ -264,7 +318,7 @@ Start the web server using Uvicorn:
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-The service loads the model into memory, executes a warm-up forward pass, and begins listening on port 8000.
+The service loads the model into memory, executes a warm-up forward pass, initializes database tables, and begins listening on port 8000.
 
 Interactive Swagger API documentation:
 `http://localhost:8000/docs`
@@ -274,7 +328,7 @@ Alternative ReDoc interface:
 
 ---
 
-## 12. API Specifications and Payload Examples
+## 13. API Specifications and Payload Examples
 
 ### 1. Health Verification
 
@@ -286,7 +340,8 @@ Response:
 {
   "status": "healthy",
   "device": "cpu",
-  "threshold": 0.85
+  "threshold": 0.85,
+  "database": "PostgreSQL"
 }
 ```
 
@@ -352,9 +407,72 @@ Response:
 }
 ```
 
+### 3. Retrieve Prediction Audit Logs
+
+- Method: `GET`
+- Path: `/logs?limit=50`
+
+Response:
+```json
+{
+  "count": 1,
+  "limit": 50,
+  "database": "PostgreSQL",
+  "logs": [
+    {
+      "id": 1,
+      "ticket_id": "TCK-8921",
+      "text": "There is an unauthorized transaction of $400 on my checking account.",
+      "predicted_intent": "fraud_security",
+      "confidence": 0.9842,
+      "route": "AUTO_ROUTE",
+      "escalate_to_human": false,
+      "latency_ms": 19.4,
+      "timestamp": "2026-10-14T08:22:45"
+    }
+  ]
+}
+```
+
+### 4. Operational System Statistics
+
+- Method: `GET`
+- Path: `/stats`
+
+Response:
+```json
+{
+  "total_predictions": 120,
+  "database_engine": "PostgreSQL",
+  "auto_route_count": 115,
+  "human_escalation_count": 5,
+  "auto_route_percentage": 95.83,
+  "average_latency_ms": 21.35,
+  "intent_distribution": {
+    "card_issues": 15,
+    "fraud_security": 8,
+    "general_enquiry": 82,
+    "login_access": 5,
+    "transfers": 10
+  }
+}
+```
+
 ---
 
-## 13. End-to-End Latency Benchmarking
+## 14. Automated Test Suite (Pytest)
+
+Execute the automated test suite verifying endpoint routing, validation errors, and database logging:
+
+```bash
+PYTHONPATH=. pytest tests/test_api.py -v
+```
+
+All 5 test cases validate model readiness, response schemas, and database persistence.
+
+---
+
+## 15. End-to-End Latency Benchmarking
 
 With the server running on port 8000, execute the benchmarking utility:
 
@@ -370,9 +488,28 @@ The script transmits 100 sequential HTTP requests with representative banking pa
 
 ---
 
-## 14. System Limitations and Next Steps
+## 16. Docker Container Deployment (Docker Compose)
+
+The complete service (FastAPI API + PostgreSQL database) can be launched in a single command using Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+This starts:
+1. `banking_postgres_db`: PostgreSQL 16 container with persistent volume storage (`pgdata`).
+2. `banking_classifier_api`: FastAPI application with healthchecks and automatic database initialization.
+
+The service binds to `http://localhost:8000`. Stop the deployment with:
+```bash
+docker compose down
+```
+
+---
+
+## 17. System Limitations and Next Steps
 
 1. Monolingual Scope: The current model operates on English queries (`uncased`). Expanding to multi-lingual customer bases will require fine-tuning multilingual models like XLM-RoBERTa.
 2. Multi-Intent Formulation: Customers occasionally combine inquiries (e.g., reporting a stolen card while requesting a wire balance). Upgrading to a multi-label sigmoid classification head will support concurrent routing.
 3. Active Learning Feedback Loop: Tickets routed to human review can be audited and relabeled by customer service specialists, generating high-value hard negative examples for iterative model fine-tuning.
-4. Database Auditing: Integrating asynchronous request/response database logging (SQLite/PostgreSQL) to capture drift and query volume over time.
+4. Monitoring Dashboards: Connect PostgreSQL prediction logs to Grafana or Metabase for real-time drift detection and SLA alerts.

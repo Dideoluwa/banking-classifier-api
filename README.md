@@ -12,8 +12,6 @@ An automated customer support ticket triage and routing microservice powered by 
   https://colab.research.google.com/drive/11gEVZKFhW9kuRiLTD7eLhQUc559z1Nsm#scrollTo=k8Rxf_eOSCcp
 - Project Performance and Architecture Documentation:
   https://docs.google.com/document/d/1iD6ArN--5a12zk_pU3nERDgjRNR4aca1L52WRcx_Jgg/edit?tab=t.0
-- Executive Slide Presentation Deck:
-  [docs/PRESENTATION.md](docs/PRESENTATION.md)
 - Complete Model Evaluation Report:
   [docs/EVALUATION_REPORT.md](docs/EVALUATION_REPORT.md)
 
@@ -220,8 +218,7 @@ banking-classifier-api/
 │   ├── model.py             # Inference pipeline wrapper, tokenization, and warm-up
 │   └── schemas.py           # Pydantic schemas for request validation and response serialisation
 ├── docs/
-│   ├── EVALUATION_REPORT.md # Comprehensive model performance and error analysis report
-│   └── PRESENTATION.md      # Executive slide deck presentation
+│   └── EVALUATION_REPORT.md # Comprehensive model performance and error analysis report
 ├── tests/
 │   └── test_api.py          # Pytest unit and integration test suite
 ├── weights/                 # Original FP32 fine-tuned model and tokenizer configuration

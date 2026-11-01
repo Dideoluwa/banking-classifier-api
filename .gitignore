@@ -47,6 +47,7 @@ weights_quantized/*.pt
 
 # IDE and OS
 .DS_Store
+.vscode/
 .idea/
 *.swp
 *.swo
@@ -55,7 +56,3 @@ weights_quantized/*.pt
 .pytest_cache/
 .coverage
 htmlcov/
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
-.gitignore
